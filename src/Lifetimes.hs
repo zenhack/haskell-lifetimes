@@ -1,5 +1,6 @@
-{-# LANGUAGE DeriveFunctor  #-}
-{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE NamedFieldPuns             #-}
 module Lifetimes
     ( Acquire
     , Resource
@@ -51,7 +52,8 @@ data Resource a = Resource
     }
     deriving(Functor)
 
-newtype Acquire a = Acquire (ReaderT Lifetime IO (Resource a))
+newtype Acquire a = Acquire (ReaderT Lifetime IO a)
+    deriving(Functor, Applicative, Monad)
 
 newReleaseKey :: Lifetime -> STM ReleaseKey
 newReleaseKey Lifetime{nextReleaseKey} = do
@@ -82,7 +84,7 @@ acquire1 lt@Lifetime{resources} get clean = do
 makeAcquire :: IO a -> (a -> IO ()) -> Acquire a
 makeAcquire get clean = Acquire $ do
     lt <- ask
-    liftIO $ acquire1 lt get clean
+    fmap getResource . liftIO $ acquire1 lt get clean
 
 newLifetime :: Acquire Lifetime
 newLifetime = makeAcquire createLifetime destroyLifetime
@@ -110,7 +112,7 @@ withLifetime = bracket createLifetime destroyLifetime
 acquire :: Lifetime -> Acquire a -> IO (Resource a)
 acquire lt (Acquire acq) = do
     lt' <- acquire1 lt createLifetime destroyLifetime
-    value' <- getResource <$> runReaderT acq (value lt')
+    value' <- runReaderT acq (value lt')
     pure lt' { value = value' }
 
 acquireValue :: Lifetime -> Acquire a -> IO a
