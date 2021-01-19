@@ -41,4 +41,4 @@ main = hspec $ do
                 )
                 $ \() -> pure ()
             value <- readIORef ref
-            value `shouldBe` [3,12]
+            value `shouldBe` [3,2,1]
