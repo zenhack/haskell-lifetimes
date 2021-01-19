@@ -12,12 +12,12 @@ main = hspec $ do
     describe "withAcquire" $ do
         it "Should run the handler on success" $ do
             ref <- newIORef 0
-            withAcquire (makeAcquire (pure ()) (\() -> writeIORef ref 1)) $ \_ -> pure ()
+            withAcquire (mkAcquire (pure ()) (\() -> writeIORef ref 1)) $ \_ -> pure ()
             value <- readIORef ref
             value `shouldBe` 1
         it "Should run the handler on exceptions" $ do
             ref <- newIORef 0
-            result <- try $ withAcquire (makeAcquire (pure ()) (\() -> writeIORef ref 1)) $ \() ->
+            result <- try $ withAcquire (mkAcquire (pure ()) (\() -> writeIORef ref 1)) $ \() ->
                 throwString "Error"
             case result of
                 Right () -> error "Should have thrown an exception"
@@ -59,6 +59,6 @@ main = hspec $ do
             value `shouldBe` [3,2,1]
 
 append :: IORef [Int] -> Int -> Acquire ()
-append ref n = makeAcquire
+append ref n = mkAcquire
     (pure ())
     (\() -> modifyIORef ref (<>[n]))

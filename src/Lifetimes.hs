@@ -4,7 +4,7 @@
 module Lifetimes
     ( Acquire
     , Resource
-    , makeAcquire
+    , mkAcquire
     , newLifetime
     , withAcquire
     , withLifetime
@@ -81,13 +81,13 @@ acquire1 lt@Lifetime{resources} get clean = do
                 }
         )
 
-makeAcquire :: IO a -> (a -> IO ()) -> Acquire a
-makeAcquire get clean = Acquire $ do
+mkAcquire :: IO a -> (a -> IO ()) -> Acquire a
+mkAcquire get clean = Acquire $ do
     lt <- ask
     fmap getResource . liftIO $ acquire1 lt get clean
 
 newLifetime :: Acquire Lifetime
-newLifetime = makeAcquire createLifetime destroyLifetime
+newLifetime = mkAcquire createLifetime destroyLifetime
 
 createLifetime :: IO Lifetime
 createLifetime = Lifetime
