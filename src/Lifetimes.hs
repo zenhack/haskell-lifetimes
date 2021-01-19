@@ -98,7 +98,7 @@ destroyLifetime :: Lifetime -> IO ()
 destroyLifetime Lifetime{resources} =
     join $ atomically $ do
         clean <- fold <$> readTVar resources
-        writeTVar resources M.empty
+        writeTVar resources $! M.empty
         pure $ runCleanup clean
 
 withAcquire :: Acquire a -> (a -> IO b) -> IO b

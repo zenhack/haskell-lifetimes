@@ -27,18 +27,38 @@ main = hspec $ do
         it "Should run cleanup handlers in reverse order" $ do
             ref <- newIORef []
             withAcquire
-                (do
-                    makeAcquire
-                        (pure ())
-                        (\() -> modifyIORef ref (<>[1]))
-                    makeAcquire
-                        (pure ())
-                        (\() -> modifyIORef ref (<>[2]))
-                    makeAcquire
-                        (pure ())
-                        (\() -> modifyIORef ref (<>[3]))
-                    pure ()
-                )
-                $ \() -> pure ()
+                (traverse_ (append ref) [1,2,3])
+                pure
             value <- readIORef ref
             value `shouldBe` [3,2,1]
+    describe "nested lifetimes" $ do
+        it "Should order resources underneath their lifetimes." $ do
+            ref <- newIORef []
+            withLifetime $ \lt -> do
+                acquire lt $ append ref 1
+                lt' <- acquireValue lt newLifetime
+                acquire lt $ append ref 2
+                -- even though 3 is allocated after 2, it will be freed when
+                -- lt' is freed.
+                acquire lt' $ append ref 3
+            value <- readIORef ref
+            value `shouldBe` [2,3,1]
+    describe "moveTo" $ do
+        it "Should live longer when moved to a longer-lived lifetime" $ do
+            ref <- newIORef []
+            withLifetime $ \lt -> do
+                acquire lt $ append ref 1
+                lt' <- acquireValue lt newLifetime
+                acquire lt $ append ref 2
+                res3 <- acquire lt' $ append ref 3
+                -- If we didn't move this, it would be freed when lt'
+                -- is freed, but this will make it live until the end of
+                -- lt instead.
+                moveTo res3 lt
+            value <- readIORef ref
+            value `shouldBe` [3,2,1]
+
+append :: IORef [Int] -> Int -> Acquire ()
+append ref n = makeAcquire
+    (pure ())
+    (\() -> modifyIORef ref (<>[n]))
