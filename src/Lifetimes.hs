@@ -13,6 +13,7 @@ module Lifetimes
     , moveTo
     , moveToSTM
     , getResource
+    , releaseEarly
     ) where
 
 import           Control.Concurrent.STM
@@ -53,7 +54,7 @@ data Resource a = Resource
     deriving(Functor)
 
 newtype Acquire a = Acquire (ReaderT Lifetime IO a)
-    deriving(Functor, Applicative, Monad)
+    deriving(Functor, Applicative, Monad, MonadIO)
 
 newReleaseKey :: Lifetime -> STM ReleaseKey
 newReleaseKey Lifetime{nextReleaseKey} = do
@@ -133,6 +134,21 @@ moveToSTM r newLifetime = do
             newKey <- newReleaseKey newLifetime
             writeTVar (releaseKey r) $! newKey
             modifyTVar (resources newLifetime) $ M.insert newKey clean
+
+releaseEarly :: Resource a -> IO ()
+releaseEarly r =
+    bracket
+        (atomically $ do
+            key <- readTVar $ releaseKey r
+            lt <- readTVar $ lifetime r
+            ltMap <- readTVar $ resources lt
+            let result = M.lookup key ltMap
+            for_ result $ \_ ->
+                modifyTVar (resources lt) $ M.delete key
+            pure result
+        )
+        (traverse_ runCleanup)
+        (\_ -> pure ())
 
 getResource :: Resource a -> a
 getResource = value

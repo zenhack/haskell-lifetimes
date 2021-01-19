@@ -43,6 +43,16 @@ main = hspec $ do
                 acquire lt' $ append ref 3
             value <- readIORef ref
             value `shouldBe` [2,3,1]
+    describe "releaseEarly" $ do
+        it "Should release the resource immediately" $ do
+            ref <- newIORef []
+            withLifetime $ \lt -> do
+                acquire lt $ append ref 1
+                res2 <- acquire lt $ append ref 2
+                acquire lt $ append ref 3
+                releaseEarly res2
+            value <- readIORef ref
+            value `shouldBe` [2,3,1]
     describe "moveTo" $ do
         it "Should live longer when moved to a longer-lived lifetime" $ do
             ref <- newIORef []
@@ -57,6 +67,17 @@ main = hspec $ do
                 moveTo res3 lt
             value <- readIORef ref
             value `shouldBe` [3,2,1]
+        it "Should do nothing if the resource has already been freed" $ do
+            ref <- newIORef []
+            withLifetime $ \lt -> do
+                res1 <- acquire lt $ append ref 1
+                lt' <- acquireValue lt newLifetime
+                acquire lt $ append ref 2
+                acquire lt' $ append ref 3
+                releaseEarly res1
+                moveTo res1 lt'
+            value <- readIORef ref
+            value `shouldBe` [1,2,3]
 
 append :: IORef [Int] -> Int -> Acquire ()
 append ref n = mkAcquire
