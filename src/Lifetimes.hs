@@ -4,6 +4,7 @@
 module Lifetimes
     ( Acquire
     , Resource
+    , Lifetime
     , mkAcquire
     , newLifetime
     , withAcquire
