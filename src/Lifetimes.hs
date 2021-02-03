@@ -143,17 +143,22 @@ moveToSTM r newLifetime = do
 releaseEarly :: Resource a -> IO ()
 releaseEarly r =
     bracket
-        (atomically $ do
-            key <- readTVar $ releaseKey r
-            lt <- readTVar $ lifetime r
-            ltMap <- readTVar $ resources lt
-            let result = M.lookup key ltMap
-            for_ result $ \_ ->
-                modifyTVar (resources lt) $ M.delete key
-            pure result
-        )
-        (traverse_ runCleanup)
+        (atomically (detach r))
+        id
         (\_ -> pure ())
 
 getResource :: Resource a -> a
 getResource = value
+
+-- | Detach the resource from its lifetime, returning the cleanup handler.
+-- NOTE: if the caller does not otherwise arrange to run the cleanup handler,
+-- it will *not* be executed.
+detach :: Resource a -> STM (IO ())
+detach r = do
+    key <- readTVar $ releaseKey r
+    lt <- readTVar $ lifetime r
+    ltMap <- readTVar $ resources lt
+    let result = M.lookup key ltMap
+    for_ result $ \_ ->
+        modifyTVar (resources lt) $ M.delete key
+    pure $ traverse_ runCleanup result
