@@ -30,7 +30,7 @@ acquireResource acq = do
 
 resourceToRc :: Resource a -> STM (Rc a)
 resourceToRc res = do
-    let value = getResource res
+    value <- mustGetResource res
     cleanup <- detach res
     count <- newTVar 1
     pure Rc { count, cleanup, value }

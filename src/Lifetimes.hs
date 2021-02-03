@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveFunctor              #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE NamedFieldPuns             #-}
 module Lifetimes
     ( Acquire
@@ -15,17 +16,22 @@ module Lifetimes
     , moveTo
     , moveToSTM
     , getResource
+    , mustGetResource
     , releaseEarly
     , detach
     ) where
 
 import           Control.Concurrent.STM
-import           Control.Exception          (bracket, finally)
+import           Control.Exception          (Exception, bracket, finally)
 import           Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
 import           Data.Foldable              (fold)
 import qualified Data.Map.Strict            as M
 import           Data.Maybe                 (fromJust)
 import           Zhp
+
+data ResourceExpired = ResourceExpired
+    deriving(Show, Read, Ord, Eq)
+instance Exception ResourceExpired
 
 newtype ReleaseKey = ReleaseKey Word64
     deriving(Show, Read, Ord, Eq, Bounded)
@@ -52,9 +58,8 @@ data Lifetime = Lifetime
 data Resource a = Resource
     { releaseKey :: TVar ReleaseKey
     , lifetime   :: TVar Lifetime
-    , value      :: a
+    , valueCell  :: TVar (Maybe a)
     }
-    deriving(Functor)
 
 newtype Acquire a = Acquire (ReaderT Lifetime IO a)
     deriving(Functor, Applicative, Monad, MonadIO)
@@ -71,7 +76,7 @@ addCleanup lt clean = do
     modifyTVar (resources lt) $ M.insert key clean
     pure key
 
-acquire1 :: Lifetime -> IO a -> (a -> IO ()) -> IO (Resource a)
+acquire1 :: Lifetime -> IO a -> (a -> IO ()) -> IO (a, Resource a)
 acquire1 lt@Lifetime{resources} get clean = do
     bracket
         (get >>= newTVarIO . Just)
@@ -82,11 +87,15 @@ acquire1 lt@Lifetime{resources} get clean = do
             writeTVar var Nothing
             lifetime <- newTVar lt
             releaseKey <- newTVar key
-            pure Resource
-                { releaseKey
-                , lifetime
-                , value
-                }
+            valueCell <- newTVar $ Just value
+            pure
+                ( value
+                , Resource
+                    { releaseKey
+                    , lifetime
+                    , valueCell
+                    }
+                )
         )
 
 currentLifetime :: Acquire Lifetime
@@ -95,7 +104,7 @@ currentLifetime = Acquire ask
 mkAcquire :: IO a -> (a -> IO ()) -> Acquire a
 mkAcquire get clean = Acquire $ do
     lt <- ask
-    fmap getResource . liftIO $ acquire1 lt get clean
+    fst <$> liftIO (acquire1 lt get clean)
 
 newLifetime :: Acquire Lifetime
 newLifetime = mkAcquire createLifetime destroyLifetime
@@ -115,19 +124,23 @@ destroyLifetime Lifetime{resources} =
 withAcquire :: Acquire a -> (a -> IO b) -> IO b
 withAcquire acq use = withLifetime $ \lt -> do
     res <- acquire lt acq
-    use (getResource res)
+    value <- fromJust <$> atomically (getResource res)
+    use value
 
 withLifetime :: (Lifetime -> IO a) -> IO a
 withLifetime = bracket createLifetime destroyLifetime
 
 acquire :: Lifetime -> Acquire a -> IO (Resource a)
 acquire lt (Acquire acq) = do
-    lt' <- acquire1 lt createLifetime destroyLifetime
-    value' <- runReaderT acq (value lt')
-    pure lt' { value = value' }
+    (lt', res) <- acquire1 lt createLifetime destroyLifetime
+    value' <- runReaderT acq lt'
+    valueCell <- atomically $ newTVar $ Just value'
+    pure res { valueCell }
 
 acquireValue :: Lifetime -> Acquire a -> IO a
-acquireValue lt acq = getResource <$> acquire lt acq
+acquireValue lt acq = do
+    res <- acquire lt acq
+    fromJust <$> atomically (getResource res)
 
 moveTo :: Resource a -> Lifetime -> IO ()
 moveTo r l = atomically $ moveToSTM r l
@@ -148,12 +161,25 @@ moveToSTM r newLifetime = do
 releaseEarly :: Resource a -> IO ()
 releaseEarly r =
     bracket
-        (atomically (detach r))
-        id
+        (atomically takeValue)
+        releaseValue
         (\_ -> pure ())
+  where
+    takeValue = do
+        v <- getResource r
+        writeTVar (valueCell r) Nothing
+        pure v
+    releaseValue v =
+        for_ v $ \_ ->
+            join $ atomically (detach r)
 
-getResource :: Resource a -> a
-getResource = value
+getResource :: Resource a -> STM (Maybe a)
+getResource r = readTVar (valueCell r)
+
+mustGetResource :: Resource a -> STM a
+mustGetResource r = getResource r >>= \case
+    Nothing -> throwSTM ResourceExpired
+    Just v  -> pure v
 
 -- | Detach the resource from its lifetime, returning the cleanup handler.
 -- NOTE: if the caller does not otherwise arrange to run the cleanup handler,
