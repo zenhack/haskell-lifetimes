@@ -55,7 +55,9 @@ common shared-opts
 library
   import: shared-opts
   hs-source-dirs:      src
-  exposed-modules: Lifetimes
+  exposed-modules:
+      Lifetimes
+    , Lifetimes.Rc
 test-suite tests
   import: shared-opts
   build-depends:
