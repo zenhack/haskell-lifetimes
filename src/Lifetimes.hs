@@ -6,6 +6,7 @@ module Lifetimes
     , Resource
     , Lifetime
     , mkAcquire
+    , currentLifetime
     , newLifetime
     , withAcquire
     , withLifetime
@@ -82,6 +83,9 @@ acquire1 lt@Lifetime{resources} get clean = do
                 , value
                 }
         )
+
+currentLifetime :: Acquire Lifetime
+currentLifetime = Acquire ask
 
 mkAcquire :: IO a -> (a -> IO ()) -> Acquire a
 mkAcquire get clean = Acquire $ do
