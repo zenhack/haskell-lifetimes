@@ -16,6 +16,7 @@ module Lifetimes
     , moveToSTM
     , getResource
     , releaseEarly
+    , detach
     ) where
 
 import           Control.Concurrent.STM
