@@ -65,16 +65,20 @@ newReleaseKey Lifetime{nextReleaseKey} = do
     writeTVar nextReleaseKey $! succ key
     pure key
 
+addCleanup :: Lifetime -> Cleanup -> STM ReleaseKey
+addCleanup lt clean = do
+    key <- newReleaseKey lt
+    modifyTVar (resources lt) $ M.insert key clean
+    pure key
+
 acquire1 :: Lifetime -> IO a -> (a -> IO ()) -> IO (Resource a)
 acquire1 lt@Lifetime{resources} get clean = do
     bracket
         (get >>= newTVarIO . Just)
         (\var -> atomically (readTVar var) >>= traverse_ clean)
         (\var -> atomically $ do
-            key <- newReleaseKey lt
             value <- fromJust <$> readTVar var
-            modifyTVar resources $
-                M.insert key (Cleanup (clean value))
+            key <- addCleanup lt $ Cleanup (clean value)
             writeTVar var Nothing
             lifetime <- newTVar lt
             releaseKey <- newTVar key
