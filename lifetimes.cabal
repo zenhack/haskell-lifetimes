@@ -58,6 +58,7 @@ library
   exposed-modules:
       Lifetimes
     , Lifetimes.Rc
+    , Lifetimes.Gc
 test-suite tests
   import: shared-opts
   build-depends:
