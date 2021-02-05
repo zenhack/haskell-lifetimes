@@ -3,22 +3,35 @@
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE NamedFieldPuns             #-}
 module Lifetimes
-    ( Acquire
-    , Resource
-    , Lifetime
-    , mkAcquire
-    , currentLifetime
+    (
+    -- * Lifetimes
+      Lifetime
     , newLifetime
-    , withAcquire
     , withLifetime
+
+    -- * Acquiring resources
+    , Acquire
+    , mkAcquire
+    , withAcquire
     , acquire
     , acquireValue
-    , moveTo
-    , moveToSTM
+    , currentLifetime
+
+    -- * Using resources
+    , Resource
     , getResource
     , mustGetResource
+
+    -- * Releasing resources
     , releaseEarly
     , detach
+
+    -- * Move semantics
+    , moveTo
+    , moveToSTM
+
+    -- * Errors
+    , ResourceExpired(..)
     ) where
 
 import           Control.Concurrent.STM
@@ -29,6 +42,8 @@ import qualified Data.Map.Strict            as M
 import           Data.Maybe                 (fromJust)
 import           Zhp
 
+-- | Error thrown when an attempt is made to use an expired
+-- resource or lifetime.
 data ResourceExpired = ResourceExpired
     deriving(Show, Read, Ord, Eq)
 instance Exception ResourceExpired
@@ -50,17 +65,24 @@ instance Semigroup Cleanup where
 instance Monoid Cleanup where
     mempty = Cleanup $ pure ()
 
+-- | A 'Lifetime' is a represents the scope in which a 'Resource' is valid;
+-- resources are attached to a lifetime when they are acquired, and will
+-- be released when the lifetime ends.
 data Lifetime = Lifetime
     { resources      :: TVar (Maybe (M.Map ReleaseKey Cleanup))
     , nextReleaseKey :: TVar ReleaseKey
     }
 
+-- | Represents a resource with type @a@, which has a lifetime and an
+-- associated cleanup handler.
 data Resource a = Resource
     { releaseKey :: TVar ReleaseKey
     , lifetime   :: TVar Lifetime
     , valueCell  :: TVar (Maybe a)
     }
 
+-- | An 'Acquire' is a monadic action that acquires some number of resources,
+-- and registers cleanup handlers to be executed when their lifetime expires.
 newtype Acquire a = Acquire (ReaderT Lifetime IO a)
     deriving(Functor, Applicative, Monad, MonadIO)
 
@@ -98,14 +120,19 @@ acquire1 lt@Lifetime{resources} get clean = do
                 )
         )
 
+-- | Get the lifetime for the resources being acquired.
 currentLifetime :: Acquire Lifetime
 currentLifetime = Acquire ask
 
+-- | @'mkAcquire' get cleanup@ acquires a resource with @get@, which will
+-- be released by calling @cleanup@ when its lifetime ends.
 mkAcquire :: IO a -> (a -> IO ()) -> Acquire a
-mkAcquire get clean = Acquire $ do
+mkAcquire get cleanup = Acquire $ do
     lt <- ask
-    fst <$> liftIO (acquire1 lt get clean)
+    fst <$> liftIO (acquire1 lt get cleanup)
 
+-- | Acquire a new lifetime, as its own resource. This allows creating
+-- sub-groups of resources, which can be later moved as a unit.
 newLifetime :: Acquire Lifetime
 newLifetime = mkAcquire createLifetime destroyLifetime
 
@@ -134,15 +161,21 @@ destroyLifetime lt =
         writeTVar (resources lt) Nothing
         pure $ runCleanup clean
 
+-- | 'withAcquire' acuires a resource, uses it, and then releases it.
+-- @'withAcquire' ('mkAcquire' get cleanup)@ is equivalent to
+-- @'bracket' get cleanup@.
 withAcquire :: Acquire a -> (a -> IO b) -> IO b
 withAcquire acq use = withLifetime $ \lt -> do
     res <- acquire lt acq
     value <- fromJust <$> atomically (getResource res)
     use value
 
+-- | Execute an IO action within the scope of a newly allocated lifetime,
+-- which ends when the IO action completes.
 withLifetime :: (Lifetime -> IO a) -> IO a
 withLifetime = bracket createLifetime destroyLifetime
 
+-- | Acquire a resource, attaching it to the supplied lifetime.
 acquire :: Lifetime -> Acquire a -> IO (Resource a)
 acquire lt (Acquire acq) = do
     (lt', res) <- acquire1 lt createLifetime destroyLifetime
@@ -150,14 +183,21 @@ acquire lt (Acquire acq) = do
     valueCell <- atomically $ newTVar $ Just value'
     pure res { valueCell }
 
+-- | Like 'acquire', but returns the value, rather than a 'Resource' wrapper.
+-- conveinent when you don't need to move the resource or release it before
+-- the lifetime expires.
 acquireValue :: Lifetime -> Acquire a -> IO a
 acquireValue lt acq = do
     res <- acquire lt acq
     fromJust <$> atomically (getResource res)
 
+-- | Move a resource to another lifetime. The resource will be detached from
+-- its existing lifetime, and so may live past it, but will be released when
+-- the new lifetime expires.
 moveTo :: Resource a -> Lifetime -> IO ()
 moveTo r l = atomically $ moveToSTM r l
 
+-- | Like 'moveTo', but in 'STM'.
 moveToSTM :: Resource a -> Lifetime -> STM ()
 moveToSTM r newLifetime = do
     oldKey <- readTVar $ releaseKey r
@@ -171,6 +211,7 @@ moveToSTM r newLifetime = do
             writeTVar (releaseKey r) $! newKey
             modifyMaybeTVar (resources newLifetime) $ M.insert newKey clean
 
+-- | Release a resource early, before its lifetime would otherwise end.
 releaseEarly :: Resource a -> IO ()
 releaseEarly r =
     bracket
@@ -186,9 +227,13 @@ releaseEarly r =
         for_ v $ \_ ->
             join $ atomically (detach r)
 
+-- | Get the value associated with a resource, returning 'Nothing' if the
+-- resource's lifetime is expired.
 getResource :: Resource a -> STM (Maybe a)
 getResource r = readTVar (valueCell r)
 
+-- | Like 'getResource', but throws a 'ResourceExpired' exception instead
+-- of returning a 'Maybe'.
 mustGetResource :: Resource a -> STM a
 mustGetResource r = getResource r >>= \case
     Nothing -> throwSTM ResourceExpired

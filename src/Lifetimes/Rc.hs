@@ -1,4 +1,9 @@
 {-# LANGUAGE NamedFieldPuns #-}
+-- | Support for working with reference-counted resources.
+--
+-- Rather than associating a resource with one lifetime, a reference counted
+-- resource associates each *reference* with a lifetime, and is released when
+-- all references have expired.
 module Lifetimes.Rc
     ( Rc
     , addRef
@@ -9,12 +14,14 @@ import Control.Concurrent.STM
 import Lifetimes
 import Zhp
 
+-- | A resource which is managed by reference counting.
 data Rc a = Rc
     { count   :: TVar Int
     , value   :: a
     , cleanup :: IO ()
     }
 
+-- | Acquire a new reference.
 addRef :: Rc a -> Acquire a
 addRef rc =
     mkAcquire
@@ -36,6 +43,10 @@ resourceToRc res = do
     pure Rc { count, cleanup, value }
 
 
+-- | Acquire a resource using refcounting. Takes an 'Acquire' for the underlying
+-- resource, and returns one that acquires an initial reference to it. Additional
+-- references may be created using 'addRef', and the underlying resource will be
+-- kept alive until all resources are released.
 refCounted :: Acquire a -> Acquire (Rc a)
 refCounted acq = do
     res <- acquireResource acq
