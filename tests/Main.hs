@@ -1,11 +1,13 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main (main) where
 
-import Control.Exception.Safe (SomeException, throwString, try)
-import Data.IORef
-import Lifetimes
-import Test.Hspec
-import Zhp
+import           Control.Exception.Safe (SomeException, throwString, try)
+import           Data.IORef
+import           Lifetimes
+import qualified Lifetimes.Gc           as Gc
+import qualified Lifetimes.Rc           as Rc
+import           Test.Hspec
+import           Zhp
 
 main :: IO ()
 main = hspec $ do
@@ -78,6 +80,29 @@ main = hspec $ do
                 moveTo res1 lt'
             value <- readIORef ref
             value `shouldBe` [1,2,3]
+    describe "Lifetimes.Rc" $ do
+        it "Should release the resources in order if no extra references are acquired" $ do
+            ref <- newIORef []
+            withLifetime $ \lt -> do
+                acquire lt $ Rc.refCounted $ append ref 1
+                acquire lt $ Rc.refCounted $ append ref 2
+            value <- readIORef ref
+            value `shouldBe` [2,1]
+        it "Should last until its final reference is dropped" $ do
+            ref <- newIORef []
+            withLifetime $ \lt1 -> do
+                withLifetime $ \lt2 -> do
+                    res <- acquireValue lt2 $ Rc.refCounted $ append ref 1
+                    acquire lt1 $ Rc.addRef res
+                value <- readIORef ref
+                value `shouldBe` []
+            value <- readIORef ref
+            value `shouldBe` [1]
+    describe "Lifetimes.Gc" $ do
+        -- TODO: write some tests for this. I(zenhack) am comfortable leaving this out
+        -- short-term since this module was lifted from haskell-capnp, which has seen
+        -- some battle testing, but longer term we should have some tests.
+        pure ()
 
 append :: IORef [Int] -> Int -> Acquire ()
 append ref n = mkAcquire
