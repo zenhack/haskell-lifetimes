@@ -51,7 +51,7 @@ instance Monoid Cleanup where
     mempty = Cleanup $ pure ()
 
 data Lifetime = Lifetime
-    { resources      :: TVar (M.Map ReleaseKey Cleanup)
+    { resources      :: TVar (Maybe (M.Map ReleaseKey Cleanup))
     , nextReleaseKey :: TVar ReleaseKey
     }
 
@@ -73,7 +73,7 @@ newReleaseKey Lifetime{nextReleaseKey} = do
 addCleanup :: Lifetime -> Cleanup -> STM ReleaseKey
 addCleanup lt clean = do
     key <- newReleaseKey lt
-    modifyTVar (resources lt) $ M.insert key clean
+    modifyMaybeTVar (resources lt) $ M.insert key clean
     pure key
 
 acquire1 :: Lifetime -> IO a -> (a -> IO ()) -> IO (a, Resource a)
@@ -111,14 +111,27 @@ newLifetime = mkAcquire createLifetime destroyLifetime
 
 createLifetime :: IO Lifetime
 createLifetime = Lifetime
-    <$> newTVarIO M.empty
+    <$> newTVarIO (Just M.empty)
     <*> newTVarIO minBound
 
+modifyMaybeTVar :: TVar (Maybe a) -> (a -> a) -> STM ()
+modifyMaybeTVar tvar f = do
+    content <- readTVar tvar
+    case content of
+        Just v  -> writeTVar tvar $ Just $! f v
+        Nothing -> throwSTM ResourceExpired
+
+getResourceMap :: Lifetime -> STM (M.Map ReleaseKey Cleanup)
+getResourceMap lt =
+    readTVar (resources lt) >>= \case
+        Just m  -> pure m
+        Nothing -> throwSTM ResourceExpired
+
 destroyLifetime :: Lifetime -> IO ()
-destroyLifetime Lifetime{resources} =
+destroyLifetime lt =
     join $ atomically $ do
-        clean <- fold <$> readTVar resources
-        writeTVar resources $! M.empty
+        clean <- fold <$> getResourceMap lt
+        writeTVar (resources lt) Nothing
         pure $ runCleanup clean
 
 withAcquire :: Acquire a -> (a -> IO b) -> IO b
@@ -149,14 +162,14 @@ moveToSTM :: Resource a -> Lifetime -> STM ()
 moveToSTM r newLifetime = do
     oldKey <- readTVar $ releaseKey r
     oldLifetime <- readTVar $ lifetime r
-    oldMap <- readTVar $ resources oldLifetime
+    oldMap <- getResourceMap oldLifetime
     case M.lookup oldKey oldMap of
         Nothing -> pure () -- already freed.
         Just clean -> do
-            modifyTVar (resources oldLifetime) $ M.delete oldKey
+            modifyMaybeTVar (resources oldLifetime) $ M.delete oldKey
             newKey <- newReleaseKey newLifetime
             writeTVar (releaseKey r) $! newKey
-            modifyTVar (resources newLifetime) $ M.insert newKey clean
+            modifyMaybeTVar (resources newLifetime) $ M.insert newKey clean
 
 releaseEarly :: Resource a -> IO ()
 releaseEarly r =
@@ -188,8 +201,8 @@ detach :: Resource a -> STM (IO ())
 detach r = do
     key <- readTVar $ releaseKey r
     lt <- readTVar $ lifetime r
-    ltMap <- readTVar $ resources lt
+    ltMap <- getResourceMap lt
     let result = M.lookup key ltMap
     for_ result $ \_ ->
-        modifyTVar (resources lt) $ M.delete key
+        modifyMaybeTVar (resources lt) $ M.delete key
     pure $ traverse_ runCleanup result
