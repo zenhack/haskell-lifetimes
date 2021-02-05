@@ -38,6 +38,7 @@ module Lifetimes.Gc
 import Control.Concurrent.MVar (MVar, mkWeakMVar, newEmptyMVar)
 import Control.Concurrent.STM
 import Control.Exception       (mask)
+import Control.Monad.STM.Class
 import Lifetimes
 import Zhp
 
@@ -94,12 +95,16 @@ data CellData a = CellData
 
 -- | Get the value from a cell. The value will not be collected until after
 -- the all transactions which read it complete.
+--
+-- Note that this is intentionally not in 'MonadSTM': it is unsafe to use it
+-- in 'IO', since the transaction would be finished as soon as it is read.
+-- Instead, in 'IO' you should use acquireCell
 readCell :: Cell a -> STM a
 readCell (Cell state) = value <$> readTVar state
 
 -- | Create  a new cell, initially with no finalizers.
-newCell :: a -> STM (Cell a)
-newCell value = Cell <$> newTVar CellData { value, finalizers = [] }
+newCell :: MonadSTM m => a -> m (Cell a)
+newCell value = liftSTM $ Cell <$> newTVar CellData { value, finalizers = [] }
 
 -- | Add a new finalizer to the cell. Cells may have many finalizers
 -- attached.

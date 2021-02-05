@@ -2,11 +2,12 @@
 {-# OPTIONS_GHC -Wno-type-defaults #-}
 module Main (main) where
 
-import Control.Exception.Safe (SomeException, throwString, try)
-import Data.IORef
-import Lifetimes
--- import qualified Lifetimes.Gc           as Gc
-import qualified Lifetimes.Rc as Rc
+import           Control.Exception.Safe (SomeException, throwString, try)
+import           Data.IORef
+import           Lifetimes
+import qualified Lifetimes.Gc           as Gc
+import qualified Lifetimes.Rc           as Rc
+import           System.Mem             (performGC)
 import           Test.Hspec
 import           Zhp
 
@@ -100,10 +101,24 @@ main = hspec $ do
             value <- readIORef ref
             value `shouldBe` [1]
     describe "Lifetimes.Gc" $ do
-        -- TODO: write some tests for this. I(zenhack) am comfortable leaving this out
-        -- short-term since this module was lifted from haskell-capnp, which has seen
-        -- some battle testing, but longer term we should have some tests.
-        pure ()
+        it "Should not release the resource while an acquired reference is active." $ do
+            ref <- newIORef []
+            cell <- Gc.newCell ()
+            Gc.addFinalizer cell (modifyIORef ref (<>[1]))
+            withAcquire (Gc.acquireCell cell) $ \() -> do
+                performGC
+                value <- readIORef ref
+                value `shouldBe` []
+        describe "moveToGC" $ do
+            it "Should not release a resource when its original lifetime is up." $ do
+                ref <- newIORef []
+                cell <- withLifetime $ \lt -> do
+                    res <- acquire lt $ append ref 1
+                    Gc.moveToGc res
+                value <- readIORef ref
+                value `shouldBe` []
+                -- Touch the value to prevent GC:
+                withAcquire (Gc.acquireCell cell) $ \_ -> pure ()
 
 append :: IORef [Int] -> Int -> Acquire ()
 append ref n = mkAcquire
