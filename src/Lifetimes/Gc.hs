@@ -17,7 +17,14 @@
 --   wait for the garbage collector to get around it.
 --
 -- It is sometimes appropriate however, when time of release is mostly an
--- implementation detail.
+-- implementation detail. In particular, this module is fine for use cases
+-- where you would want to use a finalizer anyway, and it can be safer:
+-- The GHC APIs allow you to attach finalizers to arbitrary values, but
+-- doing so is perlious; the compiler and runtime system are free to do
+-- many transformations on the code that uses pure values, so it is easy
+-- to end up with the finalizer being run sooner than you intended. This
+-- module provides a 'Cell' type for finalizable values which is easier
+-- to reason about.
 {-# LANGUAGE NamedFieldPuns #-}
 module Lifetimes.Gc
     ( Cell
@@ -84,7 +91,8 @@ data CellData a = CellData
     }
     deriving(Eq)
 
--- | Get the value from a cell
+-- | Get the value from a cell. The value will not be collected until after
+-- the all transactions which read it complete.
 readCell :: Cell a -> STM a
 readCell (Cell state) = value <$> readTVar state
 
