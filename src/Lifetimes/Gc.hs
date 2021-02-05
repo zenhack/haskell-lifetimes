@@ -29,6 +29,7 @@
 module Lifetimes.Gc
     ( Cell
     , readCell
+    , acquireCell
     , moveToGc
     , newCell
     , addFinalizer
@@ -120,3 +121,19 @@ moveToGc r =
         pure $ do
             addFinalizer cell fin
             pure cell
+
+
+-- | Acquire a reference to the underlying value. This keeps the finalizer
+-- from being run before the acquired reference is dropped.
+--
+-- If you need to use the value in 'IO', you should use this to get a
+-- reference to it. If you only need to use it in 'STM', 'readCell'
+-- may be more ergonomic.
+acquireCell :: Cell a -> Acquire a
+acquireCell (Cell var) = mkAcquire
+    (atomically $ value <$> readTVar var)
+    (\_ -> atomically $ do
+        -- Touch the contents of the cell, to make sure it stays alive.
+        CellData{} <- readTVar var
+        pure ()
+    )
