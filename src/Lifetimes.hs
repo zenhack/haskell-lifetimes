@@ -112,7 +112,7 @@ addCleanup lt clean = do
     pure key
 
 acquire1 :: Lifetime -> IO a -> (a -> IO ()) -> IO (a, Resource a)
-acquire1 lt@Lifetime{resources} get clean = do
+acquire1 lt get clean = do
     bracket
         (get >>= newTVarIO . Just)
         (\var -> atomically (readTVar var) >>= traverse_ clean)
@@ -208,17 +208,17 @@ acquireValue lt acq = do
 -- its existing lifetime, and so may live past it, but will be released when
 -- the new lifetime expires.
 moveTo :: MonadSTM m => Resource a -> Lifetime -> m ()
-moveTo r newLifetime = liftSTM $ do
+moveTo r newLt = liftSTM $ do
     oldKey <- readTVar $ releaseKey r
-    oldLifetime <- readTVar $ lifetime r
-    oldMap <- getResourceMap oldLifetime
+    oldLt <- readTVar $ lifetime r
+    oldMap <- getResourceMap oldLt
     case M.lookup oldKey oldMap of
         Nothing -> pure () -- already freed.
         Just clean -> do
-            modifyMaybeTVar (resources oldLifetime) $ M.delete oldKey
-            newKey <- newReleaseKey newLifetime
+            modifyMaybeTVar (resources oldLt) $ M.delete oldKey
+            newKey <- newReleaseKey newLt
             writeTVar (releaseKey r) $! newKey
-            modifyMaybeTVar (resources newLifetime) $ M.insert newKey clean
+            modifyMaybeTVar (resources newLt) $ M.insert newKey clean
 
 -- | Release a resource early, before its lifetime would otherwise end.
 releaseEarly :: Resource a -> IO ()

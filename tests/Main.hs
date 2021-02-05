@@ -1,11 +1,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-type-defaults #-}
 module Main (main) where
 
-import           Control.Exception.Safe (SomeException, throwString, try)
-import           Data.IORef
-import           Lifetimes
-import qualified Lifetimes.Gc           as Gc
-import qualified Lifetimes.Rc           as Rc
+import Control.Exception.Safe (SomeException, throwString, try)
+import Data.IORef
+import Lifetimes
+-- import qualified Lifetimes.Gc           as Gc
+import qualified Lifetimes.Rc as Rc
 import           Test.Hspec
 import           Zhp
 
@@ -37,21 +38,21 @@ main = hspec $ do
         it "Should order resources underneath their lifetimes." $ do
             ref <- newIORef []
             withLifetime $ \lt -> do
-                acquire lt $ append ref 1
+                void $ acquire lt $ append ref 1
                 lt' <- acquireValue lt newLifetime
-                acquire lt $ append ref 2
+                void $ acquire lt $ append ref 2
                 -- even though 3 is allocated after 2, it will be freed when
                 -- lt' is freed.
-                acquire lt' $ append ref 3
+                void $ acquire lt' $ append ref 3
             value <- readIORef ref
             value `shouldBe` [2,3,1]
     describe "releaseEarly" $ do
         it "Should release the resource immediately" $ do
             ref <- newIORef []
             withLifetime $ \lt -> do
-                acquire lt $ append ref 1
+                void $ acquire lt $ append ref 1
                 res2 <- acquire lt $ append ref 2
-                acquire lt $ append ref 3
+                void $ acquire lt $ append ref 3
                 releaseEarly res2
             value <- readIORef ref
             value `shouldBe` [2,3,1]
@@ -59,9 +60,9 @@ main = hspec $ do
         it "Should live longer when moved to a longer-lived lifetime" $ do
             ref <- newIORef []
             withLifetime $ \lt -> do
-                acquire lt $ append ref 1
+                void $ acquire lt $ append ref 1
                 lt' <- acquireValue lt newLifetime
-                acquire lt $ append ref 2
+                void $ acquire lt $ append ref 2
                 res3 <- acquire lt' $ append ref 3
                 -- If we didn't move this, it would be freed when lt'
                 -- is freed, but this will make it live until the end of
@@ -74,8 +75,8 @@ main = hspec $ do
             withLifetime $ \lt -> do
                 res1 <- acquire lt $ append ref 1
                 lt' <- acquireValue lt newLifetime
-                acquire lt $ append ref 2
-                acquire lt' $ append ref 3
+                void $ acquire lt $ append ref 2
+                void $ acquire lt' $ append ref 3
                 releaseEarly res1
                 moveTo res1 lt'
             value <- readIORef ref
@@ -84,14 +85,14 @@ main = hspec $ do
         it "Should release the resources in order if no extra references are acquired" $ do
             ref <- newIORef []
             withLifetime $ \lt -> do
-                acquire lt $ Rc.refCounted $ append ref 1
-                acquire lt $ Rc.refCounted $ append ref 2
+                void $ acquire lt $ Rc.refCounted $ append ref 1
+                void $ acquire lt $ Rc.refCounted $ append ref 2
             value <- readIORef ref
             value `shouldBe` [2,1]
         it "Should last until its final reference is dropped" $ do
             ref <- newIORef []
             withLifetime $ \lt1 -> do
-                withLifetime $ \lt2 -> do
+                void $ withLifetime $ \lt2 -> do
                     res <- acquireValue lt2 $ Rc.refCounted $ append ref 1
                     acquire lt1 $ Rc.addRef res
                 value <- readIORef ref
