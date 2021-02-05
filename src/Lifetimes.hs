@@ -28,7 +28,6 @@ module Lifetimes
 
     -- * Move semantics
     , moveTo
-    , moveToSTM
 
     -- * Errors
     , ResourceExpired(..)
@@ -36,6 +35,7 @@ module Lifetimes
 
 import           Control.Concurrent.STM
 import           Control.Exception          (Exception, bracket, finally)
+import           Control.Monad.STM.Class
 import           Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
 import           Data.Foldable              (fold)
 import qualified Data.Map.Strict            as M
@@ -194,12 +194,8 @@ acquireValue lt acq = do
 -- | Move a resource to another lifetime. The resource will be detached from
 -- its existing lifetime, and so may live past it, but will be released when
 -- the new lifetime expires.
-moveTo :: Resource a -> Lifetime -> IO ()
-moveTo r l = atomically $ moveToSTM r l
-
--- | Like 'moveTo', but in 'STM'.
-moveToSTM :: Resource a -> Lifetime -> STM ()
-moveToSTM r newLifetime = do
+moveTo :: MonadSTM m => Resource a -> Lifetime -> m ()
+moveTo r newLifetime = liftSTM $ do
     oldKey <- readTVar $ releaseKey r
     oldLifetime <- readTVar $ lifetime r
     oldMap <- getResourceMap oldLifetime
@@ -229,21 +225,21 @@ releaseEarly r =
 
 -- | Get the value associated with a resource, returning 'Nothing' if the
 -- resource's lifetime is expired.
-getResource :: Resource a -> STM (Maybe a)
-getResource r = readTVar (valueCell r)
+getResource :: MonadSTM m => Resource a -> m (Maybe a)
+getResource r = liftSTM $ readTVar (valueCell r)
 
 -- | Like 'getResource', but throws a 'ResourceExpired' exception instead
 -- of returning a 'Maybe'.
-mustGetResource :: Resource a -> STM a
-mustGetResource r = getResource r >>= \case
+mustGetResource :: MonadSTM m => Resource a -> m a
+mustGetResource r = liftSTM $ getResource r >>= \case
     Nothing -> throwSTM ResourceExpired
     Just v  -> pure v
 
 -- | Detach the resource from its lifetime, returning the cleanup handler.
 -- NOTE: if the caller does not otherwise arrange to run the cleanup handler,
 -- it will *not* be executed.
-detach :: Resource a -> STM (IO ())
-detach r = do
+detach :: MonadSTM m => Resource a -> m (IO ())
+detach r = liftSTM $ do
     key <- readTVar $ releaseKey r
     lt <- readTVar $ lifetime r
     ltMap <- getResourceMap lt
