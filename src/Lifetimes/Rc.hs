@@ -29,13 +29,6 @@ addRef rc =
         (atomically $ incRef rc)
         (\_ -> join $ atomically $ decRef rc)
 
-acquireResource :: Acquire a -> Acquire (Resource a)
-acquireResource acq = do
-    lt <- currentLifetime
-    mkAcquire
-        (acquire lt acq)
-        releaseEarly
-
 resourceToRc :: Resource a -> STM (Rc a)
 resourceToRc res = do
     value <- mustGetResource res
@@ -50,10 +43,13 @@ resourceToRc res = do
 -- kept alive until all resources are released.
 refCounted :: Acquire a -> Acquire (Rc a)
 refCounted acq = do
-    res <- acquireResource acq
-    mkAcquire
-        (atomically $ resourceToRc res)
-        (join . atomically . decRef)
+    lt <- currentLifetime
+    liftIO $ withLifetime $ \tmpLt -> do
+        res <- acquire tmpLt acq
+        acquireValue lt $ mkAcquire
+            (atomically $ resourceToRc res)
+            (join . atomically . decRef)
+
 
 incRef :: Rc a -> STM a
 incRef Rc{count, value} = do
