@@ -2,6 +2,19 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE NamedFieldPuns             #-}
+-- | Module: Lifetimes
+-- Description: Flexible resource management using first class lifetimes.
+--
+-- This package is centered around a couple types:
+--
+-- * 'Acquire' is a monadic context in which resources can be acquired.
+--   These can be executed using 'acquire', or for simpler cases 'withAcquire'
+--   or 'acquireValue'.
+-- * 'Resource' is a handle to a resource. The value for the resource can
+--   be read from this, and the 'Resource' can also be used to manipulate
+--   the resource's lifetime.
+-- * 'Liftime' is the type of first-class liftimes; resources are attached
+--   to these and can be moved between them.
 module Lifetimes
     (
     -- * Lifetimes

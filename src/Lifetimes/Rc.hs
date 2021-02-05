@@ -1,5 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
--- | Support for working with reference-counted resources.
+-- | Module: Lifetimes.Rc
+-- Description: Support for working with reference-counted resources.
 --
 -- Rather than associating a resource with one lifetime, a reference counted
 -- resource associates each *reference* with a lifetime, and is released when

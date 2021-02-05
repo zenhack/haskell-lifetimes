@@ -1,8 +1,17 @@
 cabal-version:       2.2
 name:                lifetimes
 version:             0.1.0.0
--- synopsis:
--- description:
+synopsis:            Flexible manual resource management
+description:
+  The lifetimes package provides support for manual resource management,
+  in a way that is more flexible than what is provided by @resourcet@ or
+  @bracket@.
+  .
+  Like @resourcet@, this package allows releasing acquired resources early.
+  In addition, it also provides move semantics: resources can be moved to
+  a different lifetime after they are acquired. Lifetimes are first class
+  values, which can themselves be acquired as resources, allowing for
+  heirarchical management as well.
 homepage:            https://github.com/zenhack/haskell-lifetimes
 license:             Apache-2.0
 
