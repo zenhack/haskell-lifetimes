@@ -55,6 +55,7 @@ common shared-opts
     , OverloadedStrings
   build-depends:
       base >=4.12 && <5
+    , async ^>=2.2.4
     , containers ^>=0.6.2
     , stm ^>=2.5
     , monad-stm ^>=0.1
@@ -67,6 +68,7 @@ library
   hs-source-dirs:      src
   exposed-modules:
       Lifetimes
+    , Lifetimes.Async
     , Lifetimes.Rc
     , Lifetimes.Gc
 test-suite tests
