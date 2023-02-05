@@ -1,6 +1,6 @@
 cabal-version:       2.2
 name:                lifetimes
-version:             0.1.0.0
+version:             0.2.0.0
 synopsis:            Flexible manual resource management
 description:
   The lifetimes package provides support for manual resource management,
@@ -18,7 +18,7 @@ license:             Apache-2.0
 license-file:        LICENSE
 author:              Ian Denhardt
 maintainer:          ian@zenhack.net
-copyright:           2021 Ian Denhardt
+copyright:           2021-2023 Ian Denhardt
 -- category:
   -- Codec
   -- Concurrency
