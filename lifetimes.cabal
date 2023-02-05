@@ -1,6 +1,6 @@
 cabal-version:       2.2
 name:                lifetimes
-version:             0.2.0.0
+version:             0.2.0.1
 synopsis:            Flexible manual resource management
 description:
   The lifetimes package provides support for manual resource management,
